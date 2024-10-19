@@ -10,7 +10,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# The Bot Token from the environment or manually set
+# The Bot Token
 BOT_TOKEN = "7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA"
 
 # Function: Send welcome message when bot starts
@@ -181,4 +181,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
