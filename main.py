@@ -1,9 +1,9 @@
 import logging
-from telegram import Update, ChatInviteLink, Bot, Chat
+from telegram import Update, ChatInviteLink
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.error import BadRequest, TelegramError
 
-# Configure logging to debug and trace the steps in detail
+# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -18,7 +18,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message when the user starts the bot."""
     user = update.message.from_user
     logger.info(f"User {user.username} has started the bot.")
-    
+
     await update.message.reply_text(
         "👋 Welcome to the Group Creation Bot!\n\n"
         "To create a group, use the command:\n"
@@ -30,7 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Provide help and instructions on how to use the bot."""
     logger.info("Help command issued")
-    
+
     await update.message.reply_text(
         "ℹ️ *Instructions to create a group:*\n\n"
         "Use the `/group @username [optional group name]` command to create a group "
@@ -40,9 +40,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "the group automatically if their settings allow it."
     )
 
-# Function: Handle the creation of a group chat between two users, whether in a group or DM
+# Function: Handle the creation of a group chat between two users
 async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Command to create a group with another user, either in a group chat or in a DM."""
+    """Command to create a group with another user."""
     user = update.message.from_user
     logger.info(f"User {user.username} initiated a group creation.")
 
@@ -51,17 +51,9 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("🚫 Please use this command in a private chat with another user.")
         return
 
-    # Check if the command was used in a DM with another user
-    if update.message.reply_to_message:
-        target_user = update.message.reply_to_message.from_user
-        logger.info(f"Reply-to message detected. Target user: {target_user.username}")
-    elif len(context.args) >= 1:
-        target_username = context.args[0]
-        target_user = await get_user_by_username(target_username)
-        logger.info(f"Target user provided by username: {target_username}")
-    else:
+    target_user = await get_target_user(update, context)
+    if not target_user:
         await update.message.reply_text("ℹ️ Please mention a user to create the group with.")
-        logger.warning(f"User {user.username} did not provide a username for group creation.")
         return
 
     group_name = handle_group_name(context.args[1:], user, target_user)
@@ -80,6 +72,26 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logger.error(f"Error creating group: {str(e)}")
         await update.message.reply_text(f"❌ An error occurred: {str(e)}")
 
+# Helper Function: Get the target user from the command or reply
+async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Determine the target user based on command arguments or reply."""
+    if update.message.reply_to_message:
+        target_user = update.message.reply_to_message.from_user
+        logger.info(f"Reply-to message detected. Target user: {target_user.username}")
+        return target_user
+
+    if len(context.args) >= 1:
+        target_username = context.args[0]
+        try:
+            target_user = await context.bot.get_chat(target_username)
+            logger.info(f"Target user found: {target_user.username}")
+            return target_user
+        except TelegramError as e:
+            logger.error(f"Error fetching user by username {target_username}: {str(e)}")
+            return None
+
+    return None
+
 # Helper Function: Handle group name based on input or defaults
 def handle_group_name(args, user, target_user):
     """Determine the group name based on the user's input or defaults."""
@@ -89,30 +101,30 @@ def handle_group_name(args, user, target_user):
     else:
         group_name = f"{user.first_name} <> {target_user.first_name}"
         logger.info(f"Default group name used: {group_name}")
-    
+
     return group_name
 
 # Function: Create a group chat and generate an invite link
 async def create_group_and_invite_link(group_name):
     """Create a new group and generate an invite link."""
-    bot = Bot(token=BOT_TOKEN)
-    
+    bot = ApplicationBuilder().token(BOT_TOKEN).bot
+
     # Step 1: Create a supergroup
     new_group = await bot.create_chat(title=group_name, chat_type="supergroup")
     logger.info(f"Supergroup '{group_name}' created successfully with ID {new_group.id}.")
-    
+
     # Step 2: Generate invite link
     invite_link = await new_group.create_invite_link(member_limit=1)
     logger.info(f"Invite link generated for group '{group_name}': {invite_link.invite_link}")
-    
+
     return new_group, invite_link
 
-# Function: Add a link to the IntroLink bot in the group description
+# Function: Add a link to the bot in the group description
 async def add_bot_to_description(new_group):
-    """Add the IntroLink bot link to the group description."""
-    bot = Bot(token=BOT_TOKEN)
+    """Add the bot link to the group description."""
+    bot = ApplicationBuilder().token(BOT_TOKEN).bot
     description = "🔗 Link to IntroLink bot: https://t.me/IntroLinkBot"
-    
+
     try:
         await bot.set_chat_description(chat_id=new_group.id, description=description)
         logger.info(f"IntroLink bot link added to group description for {new_group.title}.")
@@ -121,9 +133,9 @@ async def add_bot_to_description(new_group):
 
 # Function: Handle inviting the target user to the new group
 async def handle_user_invitation(target_user, new_group, invite_link: ChatInviteLink):
-    """Invite the target user by sending a message or adding them directly."""
-    bot = Bot(token=BOT_TOKEN)
-    
+    """Invite the target user by sending a message."""
+    bot = ApplicationBuilder().token(BOT_TOKEN).bot
+
     try:
         # Send the invite link via direct message
         await bot.send_message(
@@ -144,20 +156,10 @@ async def handle_user_invitation(target_user, new_group, invite_link: ChatInvite
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors from the Telegram API or bot."""
     logger.error(f"An error occurred: {context.error}")
-    await update.message.reply_text("⚠️ An unexpected error occurred. Please try again later.")
 
-# Helper Function: Get a user by their username
-async def get_user_by_username(username: str):
-    """Get the Telegram user by username."""
-    bot = Bot(token=BOT_TOKEN)
-    try:
-        # Use get_chat to fetch user details by username
-        user = await bot.get_chat(username)
-        logger.info(f"Found user by username {username}: {user.first_name}")
-        return user
-    except TelegramError as e:
-        logger.error(f"Error fetching user by username {username}: {str(e)}")
-        raise e
+    # Check if update has a message
+    if update and update.message:
+        await update.message.reply_text("⚠️ An unexpected error occurred. Please try again later.")
 
 # Main function to initialize the bot and its command handlers
 def main():
@@ -166,18 +168,19 @@ def main():
 
     # Create the bot application with the token
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-    
+
     # Add command handlers to the application
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("group", start_group))
     application.add_handler(CommandHandler("help", help_command))
-    
+
     # Add the error handler globally
     application.add_error_handler(error_handler)
-    
+
     # Run the bot
     logger.info("Bot is starting... Now polling for updates.")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
+        
