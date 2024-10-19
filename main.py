@@ -132,8 +132,10 @@ async def handle_user_invitation(target_user, new_group, invite_link: ChatInvite
 # Function: Gracefully handle errors globally
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"An error occurred: {context.error}")
-    if update.message:
+    if update and update.message:
         await update.message.reply_text("⚠️ An unexpected error occurred. Please try again later.")
+    else:
+        logger.warning("Update or message is None. Unable to send error response.")
 
 # Helper Function: Get a user by their username
 async def get_user_by_username(username: str):
@@ -159,8 +161,8 @@ def main():
     application.add_error_handler(error_handler)
     
     logger.info("Bot is starting... Now polling for updates.")
-    application.run_polling()
+    application.run_polling(drop_pending_updates=True)  # Added drop_pending_updates for clean start
 
 if __name__ == "__main__":
     main()
-    
+        
