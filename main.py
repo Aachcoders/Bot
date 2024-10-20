@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, ChatInviteLink, Bot
+from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.error import BadRequest, TelegramError
 
@@ -112,7 +112,7 @@ async def add_bot_to_description(new_group):
         logger.error(f"Failed to set group description: {str(e)}")
 
 # Function: Handle inviting the target user to the new group
-async def handle_user_invitation(target_user, new_group, invite_link: ChatInviteLink):
+async def handle_user_invitation(target_user, new_group, invite_link):
     bot = Bot(token=BOT_TOKEN)
     
     try:
@@ -143,10 +143,15 @@ async def get_user_by_username(username: str):
     """Get the Telegram user by username."""
     bot = Bot(token=BOT_TOKEN)
     try:
+        # Attempt to retrieve user via get_chat by username
         user = await bot.get_chat(username)
-        logger.info(f"Found user by username {username}: {user.first_name}")
-        return user
-    except TelegramError as e:
+        if user.type == 'private':  # Ensure we are dealing with a private user, not a group or channel
+            logger.info(f"Found user by username {username}: {user.first_name}")
+            return user
+        else:
+            logger.warning(f"{username} is not a private user. Type: {user.type}")
+            return None
+    except BadRequest as e:
         logger.error(f"Error fetching user by username {username}: {str(e)}")
         return None
 
