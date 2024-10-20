@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, Bot
+from telegram import Update, Bot, ChatInviteLink
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.error import BadRequest, TelegramError
 
@@ -21,7 +21,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 Welcome to the Group Creation Bot!\n\n"
         "To create a group, use the command:\n"
-        "/group @username [optional group name]\n\n"
+        "/group [optional group name] in someone's DMs.\n\n"
         "For help, type /help."
     )
 
@@ -31,11 +31,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     await update.message.reply_text(
         "ℹ️ *Instructions to create a group:*\n\n"
-        "Use the `/group @username [optional group name]` command to create a group "
-        "with another user. If you don't specify a name, the group will default "
-        "to '[Your Name] <> [Target User]'.\n\n"
-        "The bot will send an invite link to the target user, and they'll be added to "
-        "the group automatically if their settings allow it."
+        "Use the `/group [optional group name]` command in someone's DMs, "
+        "and the bot will create a group with that person.\n"
+        "If you don't specify a group name, the group will default to "
+        "'[Your Name] <> [Their Name]'."
     )
 
 # Function: Handle the creation of a group chat
@@ -43,25 +42,14 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user = update.message.from_user
     logger.info(f"User {user.username} initiated a group creation.")
 
+    # Ensure the command is being used in a direct message (DM) chat
     if update.message.chat.type != "private":
         logger.warning(f"User {user.username} attempted to use /group in a non-private chat.")
-        await update.message.reply_text("🚫 Please use this command in a private chat with the bot.")
+        await update.message.reply_text("🚫 Please use this command in a direct message with another person.")
         return
 
-    # Check if the command was used correctly
-    if len(context.args) < 1:
-        await update.message.reply_text("ℹ️ Please mention a user to create the group with.")
-        logger.warning(f"User {user.username} did not provide a username for group creation.")
-        return
-
-    target_username = context.args[0]
-    target_user = await get_user_by_username(target_username)
-    
-    if target_user is None:
-        await update.message.reply_text(f"❌ User {target_username} not found or hasn’t interacted with the bot.")
-        return
-
-    group_name = handle_group_name(context.args[1:], user, target_user)
+    target_user = update.message.chat  # The user the message was sent to
+    group_name = handle_group_name(context.args, user, target_user)
 
     try:
         new_group, invite_link = await create_group_and_invite_link(group_name)
@@ -70,9 +58,9 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await update.message.reply_text(
             f"✅ Group '{group_name}' created successfully!\n"
-            f"An invite link has been sent to {target_user.username}."
+            f"An invite link has been sent to {target_user.first_name}."
         )
-        logger.info(f"Group '{group_name}' created by {user.username}. Invite link sent to {target_user.username}.")
+        logger.info(f"Group '{group_name}' created by {user.username}. Invite link sent to {target_user.first_name}.")
     except TelegramError as e:
         logger.error(f"Error creating group: {str(e)}")
         await update.message.reply_text(f"❌ An error occurred: {str(e)}")
@@ -95,7 +83,7 @@ async def create_group_and_invite_link(group_name):
     new_group = await bot.create_chat(title=group_name, chat_type="supergroup")
     logger.info(f"Supergroup '{group_name}' created successfully with ID {new_group.id}.")
     
-    invite_link = await new_group.create_invite_link(member_limit=1)
+    invite_link = await new_group.create_invite_link(member_limit=2)  # Limit the invite link to 2 users (optional)
     logger.info(f"Invite link generated for group '{group_name}': {invite_link.invite_link}")
     
     return new_group, invite_link
@@ -122,9 +110,9 @@ async def handle_user_invitation(target_user, new_group, invite_link):
                  f"Click here to join: {invite_link.invite_link}\n"
                  f"Also, check out the IntroLink bot: https://t.me/IntroLinkBot"
         )
-        logger.info(f"Invite link sent to {target_user.username}.")
+        logger.info(f"Invite link sent to {target_user.first_name}.")
     except BadRequest as e:
-        logger.error(f"Failed to send invite link to {target_user.username}: {str(e)}")
+        logger.error(f"Failed to send invite link to {target_user.first_name}: {str(e)}")
         await bot.send_message(
             chat_id=target_user.id,
             text="🚫 Could not automatically add you to the group. Please use the invite link."
@@ -137,23 +125,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ An unexpected error occurred. Please try again later.")
     else:
         logger.warning("Update or message is None. Unable to send error response.")
-
-# Helper Function: Get a user by their username
-async def get_user_by_username(username: str):
-    """Get the Telegram user by username."""
-    bot = Bot(token=BOT_TOKEN)
-    try:
-        # Attempt to retrieve user via get_chat by username
-        user = await bot.get_chat(username)
-        if user.type == 'private':  # Ensure we are dealing with a private user, not a group or channel
-            logger.info(f"Found user by username {username}: {user.first_name}")
-            return user
-        else:
-            logger.warning(f"{username} is not a private user. Type: {user.type}")
-            return None
-    except BadRequest as e:
-        logger.error(f"Error fetching user by username {username}: {str(e)}")
-        return None
 
 # Main function to initialize the bot and its command handlers
 def main():
