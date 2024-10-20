@@ -61,6 +61,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if update.message.text.startswith('/group'):
         await process_group_command(update, context)
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify about it."""
+    logger.error(f"Update {update} caused error {context.error}")
+
 def main():
     """Start the bot."""
     application = ApplicationBuilder().token("7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA").build()
@@ -71,6 +75,9 @@ def main():
     
     # Register a message handler for DMs
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Register an error handler
+    application.add_error_handler(error_handler)
 
     application.run_polling()
 
