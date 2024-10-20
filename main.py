@@ -56,6 +56,15 @@ async def process_group_command(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error(f"Error sending message to user {target_user.id}: {e}")
         await update.message.reply_text("Failed to notify the other user.")
 
+async def handle_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /group command from the bot's chat."""
+    if update.message.chat.type == 'private':
+        await update.message.reply_text("Please reply to another user's message in your DM with /group.")
+        return
+    
+    # Process the /group command
+    await process_group_command(update, context)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle messages and check for /group command."""
     if update.message.text.startswith('/group'):
@@ -75,6 +84,9 @@ def main():
     
     # Register a message handler for DMs
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Register a handler for /group command in any chat
+    application.add_handler(CommandHandler('group', handle_group_command))
 
     # Register an error handler
     application.add_error_handler(error_handler)
