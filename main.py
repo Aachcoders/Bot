@@ -48,10 +48,20 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("🚫 Please use this command in a direct message with another person.")
         return
 
-    target_user = update.message.chat  # The user the message was sent to
-    group_name = handle_group_name(context.args, user, target_user)
+    # Check if the target user is valid and has interacted with the bot
+    target_username = update.message.text.split()[1] if len(update.message.text.split()) > 1 else None
+    
+    if not target_username:
+        await update.message.reply_text("❌ Please specify a username. Example: /group @username")
+        return
 
     try:
+        target_user = await fetch_user_by_username(target_username)
+        if not target_user:
+            await update.message.reply_text(f"❌ User @{target_username} not found or hasn’t interacted with the bot.")
+            return
+
+        group_name = handle_group_name(context.args, user, target_user)
         new_group, invite_link = await create_group_and_invite_link(group_name)
         await add_bot_to_description(new_group)
         await handle_user_invitation(target_user, new_group, invite_link)
@@ -64,6 +74,18 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except TelegramError as e:
         logger.error(f"Error creating group: {str(e)}")
         await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+
+# Function: Fetch the user by username
+async def fetch_user_by_username(username: str):
+    bot = Bot(token=BOT_TOKEN)
+    
+    try:
+        user = await bot.get_chat(username)
+        logger.info(f"Fetched user @{username} with ID {user.id}.")
+        return user
+    except BadRequest as e:
+        logger.error(f"Error fetching user by username @{username}: {str(e)}")
+        return None
 
 # Helper Function: Handle group name based on input or defaults
 def handle_group_name(args, user, target_user):
