@@ -10,7 +10,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# The Bot Token from the environment or manually set
+# The Bot Token
 BOT_TOKEN = "7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA"
 
 # Function: Send welcome message when bot starts
@@ -45,19 +45,20 @@ async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if update.message.chat.type != "private":
         logger.warning(f"User {user.username} attempted to use /group in a non-private chat.")
-        await update.message.reply_text("🚫 Please use this command in a private chat with another user.")
+        await update.message.reply_text("🚫 Please use this command in a private chat with the bot.")
         return
 
-    # Check if the command was used in a DM with another user
-    if len(context.args) >= 1:
-        target_username = context.args[0]
-        target_user = await get_user_by_username(target_username)
-        if target_user is None:
-            await update.message.reply_text(f"❌ User {target_username} not found.")
-            return
-    else:
+    # Check if the command was used correctly
+    if len(context.args) < 1:
         await update.message.reply_text("ℹ️ Please mention a user to create the group with.")
         logger.warning(f"User {user.username} did not provide a username for group creation.")
+        return
+
+    target_username = context.args[0]
+    target_user = await get_user_by_username(target_username)
+    
+    if target_user is None:
+        await update.message.reply_text(f"❌ User {target_username} not found or hasn’t interacted with the bot.")
         return
 
     group_name = handle_group_name(context.args[1:], user, target_user)
@@ -165,4 +166,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+    
