@@ -11,7 +11,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot token
-BOT_TOKEN = "7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA"
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 # Start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,4 +103,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
