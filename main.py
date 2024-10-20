@@ -46,7 +46,7 @@ async def process_group_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Failed to notify the other user.")
 
 def main():
-    application = ApplicationBuilder().token("YOUR_TOKEN_HERE").build()
+    application = ApplicationBuilder().token("7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA").build()
     
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
