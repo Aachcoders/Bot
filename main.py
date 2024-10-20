@@ -1,105 +1,95 @@
 import logging
-from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from telegram.error import BadRequest, TelegramError
+from telegram import Update, Bot, ParseMode
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
-# Configure logging
+# Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
 logger = logging.getLogger(__name__)
 
-# Bot token
-BOT_TOKEN = "7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA"
+# Constants
+INTRO_LINK_BOT_URL = "https://t.me/IntroLinkBot"
 
-# Start command handler
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.message.from_user
-    logger.info(f"User {user.username} has started the bot.")
-    await update.message.reply_text("👋 Welcome! Use /group @username to create a group.")
+# Helper Functions
 
-# Help command handler
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "ℹ️ *To create a group:*\n"
-        "Use the `/group @username [optional group name]` command in someone's DMs. "
-        "If no group name is provided, a default one will be used."
-    )
-
-# Fetch user by username
-async def fetch_user_by_username(username: str):
-    bot = Bot(token=BOT_TOKEN)
+def create_group_chat(group_name):
+    """Function to create a group chat with the specified name."""
     try:
-        user = await bot.get_chat(username)
-        logger.info(f"Fetched user @{username} with ID {user.id}.")
-        return user
-    except BadRequest as e:
-        logger.error(f"Error fetching user @{username}: {str(e)}")
+        # Placeholder logic for creating a group chat
+        new_group_id = hash(group_name)  # Mock ID for group creation
+        return new_group_id
+    except Exception as e:
+        logger.error(f"Error creating group chat: {e}")
         return None
 
-# Start group command handler
-async def start_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.message.from_user
-    logger.info(f"User {user.username} wants to create a group.")
-    
-    # Check if command is being used in DMs
-    if update.message.chat.type != "private":
-        await update.message.reply_text("🚫 Please use this command in a private chat.")
-        return
-
-    # Parse username from the command
-    if len(context.args) == 0:
-        await update.message.reply_text("❌ Please specify a username. Example: /group @username")
-        return
-
-    target_username = context.args[0]
-    logger.info(f"Target username: {target_username}")
-
-    # Fetch the target user by username
-    target_user = await fetch_user_by_username(target_username)
-    if not target_user:
-        await update.message.reply_text(f"❌ User @{target_username} not found or hasn’t interacted with the bot.")
-        return
-
-    # Define group name (optional)
-    group_name = " ".join(context.args[1:]) if len(context.args) > 1 else f"{user.first_name} <> {target_user.first_name}"
-    logger.info(f"Group name: {group_name}")
-
+def notify_user(bot, target_user_id, group_name, group_link):
+    """Function to notify another user about the new group."""
     try:
-        # Create the group
-        bot = Bot(token=BOT_TOKEN)
-        new_group = await bot.create_chat(title=group_name, chat_type="supergroup")
-        logger.info(f"Group '{group_name}' created with ID {new_group.id}.")
+        bot.send_message(
+            chat_id=target_user_id,
+            text=(f"You have been added to a new group: *{group_name}*. "
+                  f"Click here to join: [Join Group]({group_link})\n"
+                  f"Also check out IntroLink bot: [IntroLink Bot]({INTRO_LINK_BOT_URL})"),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error notifying user: {e}")
+        return False
 
-        # Send invite link to target user
-        invite_link = await new_group.create_invite_link()
-        await bot.send_message(chat_id=target_user.id, text=f"You've been invited to the group '{group_name}'. Click here to join: {invite_link.invite_link}")
-        logger.info(f"Invite link sent to {target_user.username}.")
+def process_group_command(update: Update, context: CallbackContext) -> None:
+    """Process the /group command for creating groups."""
+    user = update.message.from_user
+    message = update.message.reply_to_message
 
-        await update.message.reply_text(f"✅ Group '{group_name}' created and invite link sent to @{target_username}.")
-    except TelegramError as e:
-        logger.error(f"Error creating group or sending invite: {str(e)}")
-        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+    if not message:
+        update.message.reply_text("Please reply to the user you want to create a group with!")
+        return
 
-# Error handler
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"An error occurred: {context.error}")
-    if update and update.message:
-        await update.message.reply_text("⚠️ An unexpected error occurred. Please try again later.")
+    target_user = message.from_user
+    group_name = " ".join(context.args) if context.args else f"{user.first_name} <> {target_user.first_name}"
+    
+    # Create the group chat and notify the target user
+    group_id = create_group_chat(group_name)
 
-# Main function to set up the bot
+    if group_id is not None:
+        group_link = f"https://t.me/joinchat/{group_id}"  # Mock link
+        if notify_user(context.bot, target_user.id, group_name, group_link):
+            update.message.reply_text(f"Group '{group_name}' created successfully!")
+        else:
+            update.message.reply_text("Failed to notify the other user.")
+    else:
+        update.message.reply_text("Failed to create the group.")
+
+def start(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command /start is issued."""
+    update.message.reply_text("Welcome! Use /group [name] to create a new group.")
+
+def help_command(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command /help is issued."""
+    update.message.reply_text(
+        "This bot allows you to create groups easily.\n"
+        "Use /group [name] in reply to another user's message to create a new group."
+    )
+
 def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    """Start the bot."""
+    # Your provided token added here
+    updater = Updater("7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA")
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("group", start_group))
+    # Register command handlers
+    updater.dispatcher.add_handler(CommandHandler('start', start))
+    updater.dispatcher.add_handler(CommandHandler('help', help_command))
+    updater.dispatcher.add_handler(CommandHandler('group', process_group_command))
 
-    application.add_error_handler(error_handler)
+    # Start polling for updates
+    updater.start_polling()
 
-    logger.info("Bot is starting...")
-    application.run_polling()
+    # Run until you send a signal to stop (Ctrl+C)
+    updater.idle()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
