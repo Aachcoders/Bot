@@ -1,5 +1,6 @@
 import logging
-from telegram import Update, Bot, ParseMode
+from telegram import Update, Bot
+from telegram.constants import ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
 # Enable logging
@@ -77,7 +78,6 @@ def help_command(update: Update, context: CallbackContext) -> None:
 
 def main():
     """Start the bot."""
-    # Your provided token added here
     updater = Updater("7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA")
 
     # Register command handlers
