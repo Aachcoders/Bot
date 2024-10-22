@@ -1,79 +1,58 @@
 import asyncio
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from typing import Dict
+from datetime import datetime
 
 from telethon import TelegramClient, events
-from telethon.tl.types import User as TelegramUser, Chat, Channel
 from telethon.tl.functions.messages import CreateChatRequest, AddChatUserRequest
-from telethon.tl.functions.channels import InviteToChannelRequest
-from telethon.errors import (
-    ChatAdminRequiredError,
-    ChatWriteForbiddenError,
-    UserPrivacyRestrictedError,
-    UserNotMutualContactError,
-    UserChannelsTooMuchError,
-    UserKickedError,
-    UserBannedInChannelError,
-    UserBlockedError,
-    UserIdInvalidError,
-    PeerIdInvalidError,
-    FloodWaitError,
-)
+from telethon.errors import FloodWaitError
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Bot configuration
 API_ID = 20452174
 API_HASH = "8269e453f690214f9d9fe71ae0d7df01"
 BOT_TOKEN = "7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA"
 
-# Simulated database
-users_db: Dict[int, 'User'] = {}
-groups_db: Dict[str, 'Group'] = {}
-
 # Constants
 INTROLINK_BOT_LINK = "https://t.me/IntroLinkBot"
 
-class User:
-    def __init__(self, user_id: int, username: str, first_name: str, last_name: str):
-        self.user_id = user_id
-        self.username = username
-        self.first_name = first_name
-        self.last_name = last_name
-        self.settings = UserSettings()
+# Simulated database
+users_db: Dict[int, Dict] = {}
+groups_db: Dict[int, Dict] = {}
 
-    @property
-    def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}" if self.last_name else self.first_name
-
-class UserSettings:
+class IntroLinkBot:
     def __init__(self):
-        self.allow_auto_add_to_groups = True
+        self.client = TelegramClient('session', API_ID, API_HASH)
 
-class Group:
-    def __init__(self, group_id: str, name: str, creator_id: int):
-        self.group_id = group_id
-        self.name = name
-        self.creator_id = creator_id
-        self.members = set()
-        self.created_at = datetime.now()
-        self.description = f"Welcome to this group! Check out IntroLink bot: {INTROLINK_BOT_LINK}"
+    async def start(self):
+        await self.client.start(bot_token=BOT_TOKEN)
+        logger.info("Bot started successfully!")
 
-    def add_member(self, user_id: int):
-        self.members.add(user_id)
+        @self.client.on(events.NewMessage(pattern='/start'))
+        async def start_handler(event):
+            await self.start_command(event)
 
-async def main():
-    client = TelegramClient('session', API_ID, API_HASH).start(BOT_TOKEN)
-    
-    @client.on(events.NewMessage(pattern='/start'))
-    async def start(event):
-        user_id = event.sender_id
-        if user_id not in users_db:
-            user = await client.get_entity(event.sender_id)
-            users_db[user_id] = User(user_id, user.username, user.first_name, user.last_name)
+        @self.client.on(events.NewMessage(pattern='/group'))
+        async def group_handler(event):
+            await self.group_command(event)
+
+        await self.client.run_until_disconnected()
+
+    async def start_command(self, event):
+        sender = await event.get_sender()
+        users_db[sender.id] = {
+            'id': sender.id,
+            'username': sender.username,
+            'first_name': sender.first_name,
+            'last_name': sender.last_name,
+            'allow_auto_add': True
+        }
         await event.respond("Welcome to IntroLink bot! I can help you create groups and manage your connections.")
 
-    @client.on(events.NewMessage(pattern='/group'))
-    async def create_group(event):
+    async def group_command(self, event):
         if not event.is_private:
             await event.respond("This command can only be used in direct messages.")
             return
@@ -85,34 +64,38 @@ async def main():
             await event.respond("This command should be used in a direct message with another user.")
             return
 
-        user = users_db.get(sender.id) or User(sender.id, sender.username, sender.first_name, sender.last_name)
-        other_user = await client.get_entity(chat.id)
+        user = users_db.get(sender.id) or {'id': sender.id, 'first_name': sender.first_name, 'last_name': sender.last_name}
+        other_user = await self.client.get_entity(chat.id)
 
         # Parse group name
-        group_name = ' '.join(event.text .split()[1:])
+        group_name = ' '.join(event.text.split()[1:])
         if not group_name:
-            group_name = f"{user.full_name} <> {other_user.first_name} {other_user.last_name}"
+            group_name = f"{user['first_name']} <> {other_user.first_name}"
 
         try:
-            result = await client(CreateChatRequest([other_user.id], group_name))
+            result = await self.client(CreateChatRequest(users=[other_user.id], title=group_name))
             group_id = result.chats[0].id
-            group = Group(group_id, group_name, sender.id)
-            groups_db[group_id] = group
-            group.add_member(sender.id)
-            group.add_member(other_user.id)
+            groups_db[group_id] = {
+                'id': group_id,
+                'name': group_name,
+                'creator_id': sender.id,
+                'members': {sender.id, other_user.id},
+                'created_at': datetime.now(),
+                'description': f"Welcome to this group! Check out IntroLink bot: {INTROLINK_BOT_LINK}"
+            }
 
             # Add users to the group
-            await client(AddChatUserRequest(group_id, other_user.id, 0))
-            await client(AddChatUserRequest(group_id, sender.id, 0))
+            await self.client(AddChatUserRequest(chat_id=group_id, user_id=other_user.id, fwd_limit=0))
+            await self.client(AddChatUserRequest(chat_id=group_id, user_id=sender.id, fwd_limit =0))
 
-            # Send invitation to the other user
-            await client.send_message(other_user.id, f"Join the group: {group_name} - https://t.me/IntroLinkBot")
-
-            await event.respond(f"Group created successfully! Group ID: {group_id}")
+            await event.respond(f"Group '{group_name}' created successfully!")
+        except FloodWaitError as e:
+            logger.warning(f"Flood wait error: {e}")
+            await event.respond(f"Flood wait error: {e}. Please try again later.")
         except Exception as e:
-            await event.respond(f"Failed to create group: {str(e)}")
-
-    await client.run_until_disconnected()
+            logger.error(f"Error creating group: {e}")
+            await event.respond(f"Error creating group: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    bot = IntroLinkBot()
+    asyncio.run(bot.start())
