@@ -1,125 +1,167 @@
+import asyncio
 import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from typing import Dict, List, Optional
+from datetime import datetime, timedelta
 
-# Enable logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+from telethon import TelegramClient, events
+from telethon.tl.types import User as TelegramUser, Chat, Channel
+from telethon.tl.functions.messages import CreateChatRequest
+from telethon.tl.functions.channels import CreateChannelRequest, InviteToChannelRequest
+from telethon.errors import (
+    ChatAdminRequiredError,
+    ChatWriteForbiddenError,
+    UserPrivacyRestrictedError,
+    UserNotMutualContactError,
+    UserChannelsTooMuchError,
+    UserKickedError,
+    UserBannedInChannelError,
+    UserBlockedError,
+    UserIdInvalidError,
+    PeerIdInvalidError,
+    FloodWaitError,
 )
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='bot.log',
+    filemode='a'
+)
 logger = logging.getLogger(__name__)
 
+# Bot configuration
+API_ID = 20452174
+API_HASH = "8269e453f690214f9d9fe71ae0d7df01"
+BOT_TOKEN = "7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA"
+
+# Simulated database
+users_db: Dict[int, 'User'] = {}
+groups_db: Dict[str, 'Group'] = {}
+
 # Constants
-INTRO_LINK_BOT_URL = "https://t.me/IntroLinkBot"
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
+GROUP_CREATION_COOLDOWN = 300  # seconds
+INTROLINK_BOT_LINK = "https://t.me/IntroLinkBot"
 
-# Store user data for group creation
-user_data = {}
+class User:
+    def __init__(self, user_id: int, username: str, first_name: str, last_name: str):
+        self.user_id = user_id
+        self.username = username
+        self.first_name = first_name
+        self.last_name = last_name
+        self.settings = UserSettings()
+        self.last_group_creation = None
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a welcome message when the command /start is issued."""
-    await update.message.reply_text("Welcome! To create a group, please reply to another user's message with /group.")
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}" if self.last_name else self.first_name
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
-    await update.message.reply_text(
-        "This bot allows you to create groups easily.\n"
-        "To create a group, reply to another user's message in your DM with /group [name]."
-    )
+    def can_create_group(self) -> bool:
+        if self.last_group_creation is None:
+            return True
+        return (datetime.now() - self.last_group_creation).total_seconds() >= GROUP_CREATION_COOLDOWN
 
-async def process_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process the /group command for creating groups."""
-    user = update.message.from_user
-    message = update.message.reply_to_message
+    def update_group_creation_time(self):
+        self.last_group_creation = datetime.now()
 
-    if not message:
-        await update.message.reply_text("Please reply to the user you want to create a group with!")
-        return
+class UserSettings:
+    def __init__(self):
+        self.allow_auto_add_to_groups = True
+        self.notification_preferences = NotificationPreferences()
+        self.privacy_settings = PrivacySettings()
 
-    target_user = message.from_user
-    group_name = " ".join(context.args) if context.args else f"{user.first_name} <> {target_user.first_name}"
+class NotificationPreferences:
+    def __init__(self):
+        self.group_invites = True
+        self.new_messages = True
+        self.mentions = True
 
-    # Store user data for later use
-    user_data[user.id] = {
-        "target_user_id": target_user.id,
-        "group_name": group_name,
-        "group_ready": False  # Flag to indicate if the group is ready for creation
-    }
+class PrivacySettings:
+    def __init__(self):
+        self.show_online_status = True
+        self.show_profile_photo = True
+        self.allow_calls = True
 
-    await update.message.reply_text(f"Group '{group_name}' is ready for creation. Please send /done when you're ready.")
+class Group:
+    def __init__(self, group_id: str, name: str, creator_id: int):
+        self.group_id = group_id
+        self.name = name
+        self.creator_id = creator_id
+        self.members = set()
+        self.created_at = datetime.now()
+        self.description = f"Welcome to this group! Check out IntroLink bot: {INTROLINK_BOT_LINK}"
+        self.settings = GroupSettings()
 
-async def process_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process the /done command to create the group."""
-    user = update.message.from_user
+    def add_member(self, user_id: int):
+        self.members.add(user_id)
 
-    # Check if the user has initiated a group creation
-    if user.id not in user_data:
-        await update.message.reply_text("You haven't started a group creation yet! Use /group first.")
-        return
+    def remove_member(self, user_i : int):
+        self.members.discard(user_id)
 
-    # Retrieve stored data
-    target_user_id = user_data[user.id]["target_user_id"]
-    group_name = user_data[user.id]["group_name"]
+class GroupSettings:
+    def __init__(self):
+        self.group_type = "public"
+        self.group_title = "IntroLink Group"
+        self.group_description = "This is a group created by IntroLink bot"
 
-    # Mocking group creation (you cannot actually create groups with bots)
-    group_id = hash(group_name)  # Mock ID for group creation
-    group_link = f"https://t.me/joinchat/{group_id}"  # Mock link
+async def main():
+    client = TelegramClient('session', API_ID, API_HASH).start(BOT_TOKEN)
+    logger.info("Bot started successfully!")
 
-    try:
-        # Notify the other user about the new group (mock implementation)
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=(f"You have been added to a new group: *{group_name}*. "
-                  f"Click here to join: [Join Group]({group_link})\n"
-                  f"Also check out IntroLink bot: [IntroLink Bot]({INTRO_LINK_BOT_URL})"),
-            parse_mode='MarkdownV2'
-        )
-        
-        await update.message.reply_text(f"Group '{group_name}' created successfully!")
+    @client.on(events.NewMessage(pattern='/start'))
+    async def start(event):
+        user_id = event.sender_id
+        if user_id not in users_db:
+            user = await client.get_entity(event.sender_id)
+            users_db[user_id] = User(user_id, user.username, user.first_name, user.last_name)
+        await event.respond("Welcome to IntroLink bot! I can help you create groups and manage your connections.")
 
-        # Clean up user data after successful creation
-        del user_data[user.id]
-    
-    except Exception as e:
-        logger.error(f"Error sending message to user {target_user_id}: {e}")
-        await update.message.reply_text("Failed to notify the other user.")
+    @client.on(events.NewMessage(pattern='/create_group'))
+    async def create_group(event):
+        user_id = event.sender_id
+        if user_id not in users_db:
+            await event.respond("Please start the bot first by sending /start command.")
+            return
+        user = users_db[user_id]
+        if not user.can_create_group():
+            await event.respond("You can create a group only once every 5 minutes.")
+            return
+        group_name = f"IntroLink Group - {user.full_name}"
+        try:
+            result = await client(CreateChannelRequest(group_name, "This is a group created by IntroLink bot"))
+            group_id = result.chats[0].id
+            group = Group(group_id, group_name, user_id)
+            groups_db[group_id] = group
+            user.update_group_creation_time()
+            await event.respond(f"Group created successfully! Group ID: {group_id}")
+        except Exception as e:
+            await event.respond(f"Failed to create group: {str(e)}")
 
-async def handle_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /group command from the bot's chat."""
-    await process_group_command(update, context)
+    @client.on(events.NewMessage(pattern='/invite_to_group'))
+    async def invite_to_group(event):
+        user_id = event.sender_id
+        if user_id not in users_db:
+            await event.respond("Please start the bot first by sending /start command.")
+            return
+        user = users_db[user_id]
+        group_id = int(event.text.split()[1])
+        if group_id not in groups_db:
+            await event.respond("Invalid group ID.")
+            return
+        group = groups_db[group_id]
+        if group.creator_id != user_id:
+            await event.respond("You are not the creator of this group.")
+            return
+        try:
+            await client(InviteToChannelRequest(group_id, [event.sender_id]))
+            group.add_member(event.sender_id)
+            await event.respond("Invitation sent successfully!")
+        except Exception as e:
+            await event.respond(f"Failed to invite to group: {str(e)}")
 
-async def handle_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /done command from the bot's chat."""
-    await process_done_command(update, context)
+    await client.run_until_disconnected()
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle messages and check for /group command."""
-    if update.message.text.startswith('/group'):
-        await process_group_command(update, context)
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the error and send a telegram message to notify about it."""
-    logger.error(f"Update {update} caused error {context.error}")
-
-def main():
-    """Start the bot."""
-    application = ApplicationBuilder().token("7803123188:AAFDr0dLsOdDKKEDspegZToOz-mTA8uB3ZA").build()
-    
-    # Register command handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    
-    # Register handlers for /group and /done commands
-    application.add_handler(CommandHandler('group', handle_group_command))
-    application.add_handler(CommandHandler('done', handle_done_command))
-    
-    # Register a message handler for DMs
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Register an error handler
-    application.add_error_handler(error_handler)
-
-    application.run_polling()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())
